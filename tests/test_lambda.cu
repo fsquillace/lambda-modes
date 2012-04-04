@@ -24,7 +24,7 @@
 //#include "../../cusp/krylov/arnoldi.h"
 
 
-#include <lambda/composite_matrix.cu>
+#include <lambda/composite_matrix.h>
 
 
 #include <cppunit/ui/text/TestRunner.h>
@@ -69,14 +69,16 @@ class LambdaTestCase : public CppUnit::TestFixture {
 	typedef cusp::array1d<float,cusp::device_memory> DeviceVector_array1d;
 	typedef cusp::array1d<float, cusp::host_memory>   HostVector_array1d;
 
-	typedef lambda::composite_matrix<IndexType, ValueType, cusp::device_memory> DeviceMatrix_comp;
-	typedef lambda::composite_matrix<IndexType, float, cusp::host_memory>   HostMatrix_comp;
+	typedef cusp::csr_matrix<IndexType, ValueType, cusp::host_memory>   HostMatrix_csr;
+	typedef cusp::csr_matrix<IndexType, ValueType, cusp::device_memory>   DeviceMatrix_csr;
+
+	typedef lambda::composite_matrix<IndexType, ValueType, cusp::host_memory, HostMatrix_csr>   HostMatrix_comp;
+	typedef lambda::composite_matrix<IndexType, ValueType, cusp::device_memory,  DeviceMatrix_csr> DeviceMatrix_comp;
+
 
 private:
-
-	std::vector<std::string> path_def_pos;
-	std::vector<DeviceMatrix_comp> dev_mat_def_pos;
-	std::vector<HostMatrix_comp> host_mat_def_pos;
+	DeviceMatrix_comp dev_mat;
+	HostMatrix_comp host_mat;
 
 
 public:
@@ -88,24 +90,19 @@ public:
 		status = culaInitialize();
 		checkStatus(status);
 
+		std::string path = "data/positive-definite/lehmer20.mtx";
 
-		// ################################ POSITIVE DEFINITE #####################
-		path_def_pos = std::vector<std::string>(1);
-//		path_def_pos[0] = "data/positive-definite/lehmer10.mtx";
-//		path_def_pos[1] = "data/positive-definite/lehmer20.mtx";
-//		path_def_pos[0] = "data/positive-definite/lehmer50.mtx";
-//		path_def_pos[0] = "data/positive-definite/lehmer100.mtx";
-		path_def_pos[0] = "data/positive-definite/lehmer200.mtx";
-//		path_def_pos[0] = "data/positive-definite/moler200.mtx";
-//		path_def_pos[0] = "data/L11_4_ringhals.mtx";
 
-//		host_mat_def_pos = std::vector<HostMatrix_csr>(path_def_pos.size());
-//		dev_mat_def_pos = std::vector<DeviceMatrix_csr>(path_def_pos.size());
-//		for(size_t i=0; i<path_def_pos.size(); i++){
-//			cusp::io::read_matrix_market_file(host_mat_def_pos[i], path_def_pos[i]);
-//			dev_mat_def_pos[i] = DeviceMatrix_comp(host_mat_def_pos[i]);
-//		}
+		HostMatrix_csr M11, M12, L11, L21, L22;
+		cusp::io::read_matrix_market_file(M11, path);
+		cusp::io::read_matrix_market_file(M12, path);
+		cusp::io::read_matrix_market_file(L11, path);
+		cusp::io::read_matrix_market_file(L21, path);
+		cusp::io::read_matrix_market_file(L22, path);
 
+		host_mat = HostMatrix_comp(M11,M12,L11,L21,L22);
+
+		dev_mat = DeviceMatrix_comp(host_mat);
 
 	}
 
@@ -114,12 +111,21 @@ public:
 		culaShutdown();
 	}
 
+	void test_host_multiply(){
+
+	}
+
 	void test_host_arnoldi()
 	{
-		HostMatrix_comp host_comp;
-		int a = 0;
-		host_comp(a,a);
-		cusp::multiply(host_comp, a,a);
+
+
+
+
+		// TODO A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*_{21})
+		HostMatrix_array2d A;
+
+
+
 
 //		for(size_t i=0; i<path_def_pos.size(); i++){
 //
