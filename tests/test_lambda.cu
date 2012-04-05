@@ -13,7 +13,6 @@
 
 #include <cusp/csr_matrix.h>
 #include <cusp/io/matrix_market.h>
-#include <string.h>
 #include <cusp/print.h>
 #include <cusp/multiply.h>
 #include <cusp/transpose.h>
@@ -25,6 +24,8 @@
 
 
 #include <lambda/composite_matrix.h>
+
+#include <cuspla.cu>
 
 
 #include <cppunit/ui/text/TestRunner.h>
@@ -58,7 +59,8 @@ void checkStatus(culaStatus status)
 class LambdaTestCase : public CppUnit::TestFixture {
 
 	CPPUNIT_TEST_SUITE (LambdaTestCase);
-	CPPUNIT_TEST (test_host_arnoldi);
+	CPPUNIT_TEST (test_host_multiply);
+	CPPUNIT_TEST (test_device_multiply);
 	CPPUNIT_TEST_SUITE_END ();
 
 	typedef int    IndexType;
@@ -113,19 +115,83 @@ public:
 
 	void test_host_multiply(){
 
+		HostVector_array1d y1(host_mat.num_rows);
+		HostVector_array1d x(host_mat.num_cols, ValueType(1));
+		cusp::multiply(host_mat,x,y1);
+
+
+		// ******** TESTING *************
+
+		// A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*L_{21})
+		HostMatrix_array2d L11_inv, L22_inv, L21, M11, M12;
+
+		cusp::convert(host_mat.L11, L11_inv);
+		cuspla::getri(L11_inv);
+		cusp::convert(host_mat.L22, L22_inv);
+		cuspla::getri(L22_inv);
+		cusp::convert(host_mat.L21, L21);
+		cusp::convert(host_mat.M11, M11);
+		cusp::convert(host_mat.M12, M12);
+
+		HostMatrix_array2d tmp1, tmp2;
+		cuspla::gemm(M12, L22_inv, tmp1, ValueType(1));
+		cuspla::gemm(tmp1, L21, tmp2, ValueType(1));
+
+		cusp::blas::axpy(M11.values.begin() , M11.values.end(), tmp2.values.begin(), ValueType(1));
+		HostMatrix_array2d A;
+		cuspla::gemm(L11_inv, tmp2, A, ValueType(1));
+
+		HostVector_array1d y2(host_mat.num_rows);
+		cuspla::gemv(A,x,y2);
+
+		ValueType errRel = nrmVector("host_multiply: ", y1, y2);
+		CPPUNIT_ASSERT( errRel < 1.0e-4 );
 	}
 
-	void test_host_arnoldi()
-	{
+	void test_device_multiply(){
+
+		DeviceVector_array1d y1(dev_mat.num_rows);
+		DeviceVector_array1d x(dev_mat.num_cols, ValueType(1));
+		cusp::multiply(dev_mat,x,y1);
+		HostVector_array1d y1_host(host_mat.num_rows);
+		cusp::copy(y1, y1_host);
+		HostVector_array1d x_host(host_mat.num_rows);
+		cusp::copy(x, x_host);
 
 
 
+		// ******** TESTING *************
 
-		// TODO A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*_{21})
+		// A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*L_{21})
+		HostMatrix_array2d L11_inv, L22_inv, L21, M11, M12;
+
+		cusp::convert(host_mat.L11, L11_inv);
+		cuspla::getri(L11_inv);
+		cusp::convert(host_mat.L22, L22_inv);
+		cuspla::getri(L22_inv);
+		cusp::convert(host_mat.L21, L21);
+		cusp::convert(host_mat.M11, M11);
+		cusp::convert(host_mat.M12, M12);
+
+		HostMatrix_array2d tmp1, tmp2;
+		cuspla::gemm(M12, L22_inv, tmp1, ValueType(1));
+		cuspla::gemm(tmp1, L21, tmp2, ValueType(1));
+
+		cusp::blas::axpy(M11.values.begin() , M11.values.end(), tmp2.values.begin(), ValueType(1));
 		HostMatrix_array2d A;
+		cuspla::gemm(L11_inv, tmp2, A, ValueType(1));
+
+		HostVector_array1d y2(host_mat.num_rows);
+		cuspla::gemv(A,x_host,y2);
 
 
+		ValueType errRel = nrmVector("device_multiply: ", y1_host, y2);
+		CPPUNIT_ASSERT( errRel < 1.0e-4 );
+	}
 
+
+	void test_host_arnoldi() // TODO add Arnoldi test with the composite matrix
+	{
 
 //		for(size_t i=0; i<path_def_pos.size(); i++){
 //
