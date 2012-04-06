@@ -61,6 +61,9 @@ class LambdaTestCase : public CppUnit::TestFixture {
 	CPPUNIT_TEST_SUITE (LambdaTestCase);
 	CPPUNIT_TEST (test_host_multiply);
 	CPPUNIT_TEST (test_device_multiply);
+	CPPUNIT_TEST(test_host_arnoldi);
+	CPPUNIT_TEST(test_device_arnoldi);
+	CPPUNIT_TEST(test_host_iram);
 	CPPUNIT_TEST_SUITE_END ();
 
 	typedef int    IndexType;
@@ -145,7 +148,7 @@ public:
 		cuspla::gemv(A,x,y2);
 
 		ValueType errRel = nrmVector("host_multiply: ", y1, y2);
-		CPPUNIT_ASSERT( errRel < 1.0e-4 );
+		CPPUNIT_ASSERT( errRel < 1.0e-3 );
 	}
 
 	void test_device_multiply(){
@@ -186,59 +189,226 @@ public:
 
 
 		ValueType errRel = nrmVector("device_multiply: ", y1_host, y2);
-		CPPUNIT_ASSERT( errRel < 1.0e-4 );
+		CPPUNIT_ASSERT( errRel < 1.0e-3 );
 	}
 
 
-	void test_host_arnoldi() // TODO add Arnoldi test with the composite matrix
+	void test_host_arnoldi()
 	{
 
-//		for(size_t i=0; i<path_def_pos.size(); i++){
+		size_t m = 10;
+		HostMatrix_array2d H(m, m);
+		HostMatrix_array2d V(host_mat.num_rows, m);
+		HostVector_array1d f(host_mat.num_rows, ValueType(0));
+
+		cusp::krylov::arnoldi(host_mat, H, V, f, 0, 3);
+		cusp::krylov::arnoldi(host_mat, H, V, f, 2, 5);
+		cusp::krylov::arnoldi(host_mat, H, V, f, 4, m);
+
+
+
+		// ******* TESTING ***********
+
+		HostMatrix_array2d A2d;
+		HostMatrix_array2d V2;
+		HostMatrix_array2d H2;
+
+		HostMatrix_array2d C;
+		HostMatrix_array2d C2;
+
+
+		size_t N = host_mat.num_rows;
+
+		// A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*L_{21})
+		HostMatrix_array2d L11_inv, L22_inv, L21, M11, M12;
+
+		cusp::convert(host_mat.L11, L11_inv);
+		cuspla::getri(L11_inv);
+		cusp::convert(host_mat.L22, L22_inv);
+		cuspla::getri(L22_inv);
+		cusp::convert(host_mat.L21, L21);
+		cusp::convert(host_mat.M11, M11);
+		cusp::convert(host_mat.M12, M12);
+
+		HostMatrix_array2d tmp1, tmp2;
+		cuspla::gemm(M12, L22_inv, tmp1, ValueType(1));
+		cuspla::gemm(tmp1, L21, tmp2, ValueType(1));
+
+		cusp::blas::axpy(M11.values.begin() , M11.values.end(), tmp2.values.begin(), ValueType(1));
+		cuspla::gemm(L11_inv, tmp2, A2d, ValueType(1));
+
+
+		// create submatrix V2
+		cusp::copy(V, V2);
+		V2.resize(N,m);
+
+		// create submatrix H2
+		H2.resize(m,m);
+		size_t l = H.num_rows;
+		for(size_t j=0; j<m; j++)
+			thrust::copy(H.values.begin()+ l*j, H.values.begin()+ l*j +m, H2.values.begin()+ m*j);
+
+		cusp::multiply(A2d, V2, C);
+
+		cusp::multiply(V2, H2, C2);
+
+		cusp::blas::axpy(f.begin() , f.end(), C2.values.begin()+(m-1)*N, ValueType(1));
+
+
+		ValueType errRel = nrmVector("host_arnoldi: ", C.values, C2.values);
+		CPPUNIT_ASSERT( errRel < 1.0e-3 );
+
+	}
+
+	void test_device_arnoldi()
+	{
+
+		size_t m = 10;
+		DeviceMatrix_array2d H(m, m);
+		DeviceMatrix_array2d V(dev_mat.num_rows, m);
+		DeviceVector_array1d f(dev_mat.num_rows, ValueType(0));
+
+		//		  DeviceMatrix_csr dev_mat;
+		//		  cusp::convert(dev_mat_def_pos[i], dev_mat);
+		cusp::krylov::arnoldi(dev_mat, H, V, f, 0, 3);
+		cusp::krylov::arnoldi(dev_mat, H, V, f, 2, 5);
+		cusp::krylov::arnoldi(dev_mat, H, V, f, 4, m);
+
+
+		// ******* TESTING ***********
+
+		HostMatrix_array2d A2d;
+		HostMatrix_array2d V2;
+		HostMatrix_array2d H2;
+
+		HostMatrix_array2d C;
+		HostMatrix_array2d C2;
+		HostVector_array1d f_host;
+		cusp::convert(f,f_host);
+
+		size_t N = host_mat.num_rows;
+
+		// A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*L_{21})
+		HostMatrix_array2d L11_inv, L22_inv, L21, M11, M12;
+
+		cusp::convert(host_mat.L11, L11_inv);
+		cuspla::getri(L11_inv);
+		cusp::convert(host_mat.L22, L22_inv);
+		cuspla::getri(L22_inv);
+		cusp::convert(host_mat.L21, L21);
+		cusp::convert(host_mat.M11, M11);
+		cusp::convert(host_mat.M12, M12);
+
+		HostMatrix_array2d tmp1, tmp2;
+		cuspla::gemm(M12, L22_inv, tmp1, ValueType(1));
+		cuspla::gemm(tmp1, L21, tmp2, ValueType(1));
+
+		cusp::blas::axpy(M11.values.begin() , M11.values.end(), tmp2.values.begin(), ValueType(1));
+		cuspla::gemm(L11_inv, tmp2, A2d, ValueType(1));
+
+
+
+		// create submatrix V2
+		cusp::copy(V, V2);
+		V2.resize(N,m);
+
+		// create submatrix H2
+		H2.resize(m,m);
+		size_t l = H.num_rows;
+		for(size_t j=0; j<m; j++)
+			thrust::copy(H.values.begin()+ l*j, H.values.begin()+ l*j +m, H2.values.begin()+ m*j);
+
+		cusp::multiply(A2d, V2, C);
+
+		cusp::multiply(V2, H2, C2);
+
+		cusp::blas::axpy(f_host.begin() , f_host.end(), C2.values.begin()+(m-1)*N, float(1));
+
+
+
+		ValueType errRel = nrmVector("device_arnoldi: ", C.values, C2.values);
+		CPPUNIT_ASSERT( errRel < 1.0e-3 );
+
+	}
+
+
+	void test_host_iram(){ //  TODO test iram with composite matrix
+		size_t k = 4;
+
+		size_t n = host_mat.num_rows;
+		size_t m = host_mat.num_cols;
+		HostMatrix_array2d eigvects;
+		HostMatrix_array2d A2d;
+		HostVector_array1d eigvals;
+		HostVector_array1d y1, eigvec(m);
+
+		cusp::krylov::implicitly_restarted_arnoldi(host_mat,\
+				eigvals, eigvects, k, 0);
+
+		// A = L11^{-1}*(M_{11}+M_{12}*L_{22}^{-1}*L_{21})
+		HostMatrix_array2d L11_inv, L22_inv, L21, M11, M12;
+
+		cusp::convert(host_mat.L11, L11_inv);
+		cuspla::getri(L11_inv);
+		cusp::convert(host_mat.L22, L22_inv);
+		cuspla::getri(L22_inv);
+		cusp::convert(host_mat.L21, L21);
+		cusp::convert(host_mat.M11, M11);
+		cusp::convert(host_mat.M12, M12);
+
+		HostMatrix_array2d tmp1, tmp2;
+		cuspla::gemm(M12, L22_inv, tmp1, ValueType(1));
+		cuspla::gemm(tmp1, L21, tmp2, ValueType(1));
+
+		cusp::blas::axpy(M11.values.begin() , M11.values.end(), tmp2.values.begin(), ValueType(1));
+		cuspla::gemm(L11_inv, tmp2, A2d, ValueType(1));
+
+
+		for(size_t j=0; j<eigvals.size(); j++){
+			thrust::copy(eigvects.values.begin()+ j*n, eigvects.values.begin()+ (j+1)*n,eigvec.begin());
+			cuspla::gemv(A2d, eigvec, y1, false);
+			cusp::blas::scal(eigvec, (ValueType)eigvals[j]);
+
+			std::stringstream j_str, eigval_str;
+			j_str << j;
+			eigval_str << eigvals[j];
+
+			ValueType errRel = nrmVector("host_iram eigval["+j_str.str()+"]:"+eigval_str.str(), y1, eigvec);
+			CPPUNIT_ASSERT( errRel < 1.0e-2 );
+		}
+	}
+
+
+//	test_device_iram(){
+//		size_t k = 4;
 //
-//			size_t m = 10;
-//			HostMatrix_array2d H(m, m);
-//			HostMatrix_array2d V(host_mat_def_pos[i].num_rows, m);
-//			HostVector_array1d f(host_mat_def_pos[i].num_rows, ValueType(0));
+//		size_t n = host_mat.num_rows;
+//		size_t m = host_mat.num_cols;
+//		DeviceMatrix_array2d eigvects;
+//		HostMatrix_array2d A2d;
+//		DeviceVector_array1d eigvals;
+//		HostVector_array1d y1, eigvec(m);
 //
-//			cusp::krylov::arnoldi(host_mat_def_pos[i], H, V, f, 0, 3);
-//			cusp::krylov::arnoldi(host_mat_def_pos[i], H, V, f, 2, 5);
-//			cusp::krylov::arnoldi(host_mat_def_pos[i], H, V, f, 4, m);
-//
-//			HostMatrix_array2d A2d;
-//			HostMatrix_array2d V2;
-//			HostMatrix_array2d H2;
-//
-//			HostMatrix_array2d C;
-//			HostMatrix_array2d C2;
+//		cusp::krylov::implicitly_restarted_arnoldi(dev_mat,\
+//				eigvals, eigvects, k, 0);
 //
 //
-//			size_t N = host_mat_def_pos[i].num_rows;
+//		cusp::convert(dev_mat, A2d);
 //
-//			cusp::convert(host_mat_def_pos[i], A2d);
+//		for(size_t j=0; j<eigvals.size(); j++){
+//			thrust::copy(eigvects.values.begin()+ j*n, eigvects.values.begin()+ (j+1)*n,eigvec.begin());
+//			cuspla::gemv(A2d, eigvec, y1, false);
+//			cusp::blas::scal(eigvec, (ValueType)eigvals[j]);
 //
+//			std::stringstream j_str, eigval_str;
+//			j_str << j;
+//			eigval_str << eigvals[j];
 //
-//			// create submatrix V2
-//			cusp::copy(V, V2);
-//			V2.resize(N,m);
-//
-//			// create submatrix H2
-//			H2.resize(m,m);
-//			size_t l = H.num_rows;
-//			for(size_t j=0; j<m; j++)
-//				thrust::copy(H.values.begin()+ l*j, H.values.begin()+ l*j +m, H2.values.begin()+ m*j);
-//
-//			cusp::multiply(A2d, V2, C);
-//
-//			cusp::multiply(V2, H2, C2);
-//
-//			cusp::blas::axpy(f.begin() , f.end(), C2.values.begin()+(m-1)*N, ValueType(1));
-//
-//
-//			ValueType errRel = nrmVector("host_arnoldi: "+path_def_pos[i], C.values, C2.values);
-//			CPPUNIT_ASSERT( errRel < 1.0e-5 );
+//			ValueType errRel = nrmVector("host_iram eigval["+j_str.str()+"]:"+eigval_str.str(), y1, eigvec);
+//			CPPUNIT_ASSERT( errRel < 1.0e-2 );
 //
 //		}
-	}
+//	}
 
 
 

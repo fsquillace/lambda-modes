@@ -86,10 +86,9 @@ class composite_matrix :
     template <typename MatrixType>
     composite_matrix(const MatrixType& matrix);
 
-
-    template <typename Vector>
-    void operator() (Vector& x, Vector& y){
-    	Vector omg1(this->num_rows), omg2(this->num_rows),\
+    template <typename MatrixOrVector1, typename MatrixOrVector2>
+    void multiply(MatrixOrVector1& x, MatrixOrVector2& y, cusp::array1d_format, cusp::array1d_format){
+    	MatrixOrVector1 omg1(this->num_rows), omg2(this->num_rows),\
     			omg3(this->num_cols), omg4(this->num_rows);
 
     	y.resize(this->num_cols);
@@ -111,6 +110,11 @@ class composite_matrix :
         // L11*y = omg4
         cusp::default_monitor<ValueType> monitor2(omg2, 100, 1e-6);
         cusp::krylov::cg(L11, y, omg4, monitor2);
+    }
+
+    template <typename MatrixOrVector1, typename MatrixOrVector2>
+    void operator() (MatrixOrVector1& x, MatrixOrVector2& y){
+    	multiply(x, y, typename MatrixOrVector1::format(), typename MatrixOrVector2::format());
     }
 
     /*! Assignment from another matrix.
