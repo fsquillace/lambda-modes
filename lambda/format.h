@@ -12,6 +12,8 @@
 namespace lambda{
 
 struct composite_format : public cusp::unknown_format {};
+struct jad_block_format : public cusp::unknown_format {};
+struct csr_block_format : public cusp::unknown_format {};
 
 }
 
